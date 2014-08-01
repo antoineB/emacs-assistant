@@ -7,7 +7,7 @@
          "sql-struct.rkt")
 
 (provide 
- find-candidates
+;; find-candidates
  lex-all)
 
 (define (lex-all input)
@@ -22,6 +22,21 @@
       [else
        (loop (sql-lexer input)
              (cons current result))])))
+
+(define (lex-abc input)
+  (define current (sql-lexer input))
+  (if (equal? (position-token-name current) 'BLANKS)
+      (lex-abc input)
+      current))
+    
+
+(define (sql-parse str)
+  (define is (open-input-string str))
+  (begin0
+      ((second sql-parser)
+       (lambda ()
+         (lex-abc is)))
+      (close-input-port is)))
 
 (module+ test
     (require rackunit)
@@ -53,7 +68,10 @@
 (define-empty-tokens op-tokens 
   (SELECT TABLE ALTER DELETE INSERT UPDATE INTO FROM WHERE ORDER BY SET VALUES
 AND OR LIKE CREATE IN AS DISTINCT ALL NATURAL OUTER INNER ON RIGHT LEFT JOIN
-FULL UNION OPAREN CPAREN COMMA DOT EQUAL EOF))
+FULL UNION OPAREN CPAREN COMMA DOT EQUAL EOF SEMICOLON TRANSTYPE TRUE FALSE
+F_NOW
+PRIMARY KEY DEFAULT NOT NULL
+T_TEXT T_INT T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE T_VARCHAR T_DATE T_NUMERIC))
 
 (define-tokens value-tokens (IDENTIFIER INTEGER STRING))
 
@@ -99,33 +117,35 @@ FULL UNION OPAREN CPAREN COMMA DOT EQUAL EOF))
   (check-equal? (all-columns test-db "firehouse")
                 '("id" "name" "address" "workforce")))
 
-;; The list of token is in reverse order
-(define (find-context reverse-list)
-  (if (empty? reverse-list)
-      #f
-      (case (position-token-token (first reverse-list))
-        [(SELECT) 'SELECT]
-        [(FROM JOIN) 'FROM]
-        [(WHERE) 'WHERE]
-        [else (find-context (rest reverse-list))])))
+(define (find-context tokens position)
+  (let loop ([context #f]
+             [tokens tokens])
+  (if (empty? tokens)
+      context
+      (let ([token (first tokens)])
+        (if (> (position-offset (position-token-end-pos token)) position)
+            context
+            (loop
+             (case (position-token-token token)
+               [(SELECT) 'SELECT]
+               [(FROM JOIN) 'FROM]
+               [(WHERE) 'WHERE]
+               [else context])
+             (rest tokens)))))))
 
 (module+ test
-  (let ([data (reverse (lex-all-without-blank (open-input-string "SELECT maison FROM voiture, camion WHERE id = 2")))])
-    (check-equal? (find-context (drop data 9)) 'SELECT)
-    (check-equal? (find-context (drop data 1)) 'WHERE)
-    (check-equal? (find-context (drop data 5)) 'FROM)))
+  (let ([data (lex-all-without-blank (open-input-string "SELECT maison FROM voiture, camion WHERE id = 2"))])
 
-(define (find-position reverse-list position)
-  (if (empty? reverse-list)
-      empty
-      (if (> position 
-             (position-offset (position-token-start-pos (first reverse-list))))
-          reverse-list
-          (find-position (rest reverse-list) position))))
+    (check-equal? (find-context data 7) 'SELECT)
+    (check-equal? (find-context data 11) 'SELECT)
+    (check-equal? (find-context data 14) 'SELECT)
+    
+    (check-equal? (find-context data 19) 'FROM)
+    (check-equal? (find-context data 23) 'FROM)
+    (check-equal? (find-context data 30) 'FROM)
 
-(module+ test
-  (let ([data (reverse (lex-all-without-blank (open-input-string "SELECT maison FROM voiture, camion WHERE id = 2")))])
-    (check-equal? (find-position data 43) (drop data 3))))
+    (check-equal? (find-context data 41) 'WHERE)
+    (check-equal? (find-context data 44) 'WHERE)))
 
 (define (start-with str lst)
   (let ([len (string-length str)])
@@ -179,44 +199,84 @@ FULL UNION OPAREN CPAREN COMMA DOT EQUAL EOF))
    candidates))
 
 (define (parse-from reverse-list)
-  (define lst
-    (let loop ([reverse-list reverse-list]
-               [lst empty])
-      (if (empty? reverse-list)
-          lst
-          (let ([elem (first reverse-list)])
-            (if (equal? (position-token-name elem) 'FROM)
-                (cons elem lst)
-                (loop
-                 (rest reverse-list)
-                 (cons elem lst)))))))
-  (if (or (empty? lst)
-          (not (equal? (position-token-name (first lst)) 'FROM)))
+  (define tokens (extract-from-to '(WHERE EOF) 'FROM reverse-list #t #t))
+  (if (empty? tokens)
       empty
-      (sql-parser (sequence->generator lst))))
+      (sql-parser (sequence->generator (reverse tokens)))))
 
 (module+ test
   (let ([data (reverse (lex-all-without-blank (open-input-string "SELECT maison FROM voiture, camion WHERE id = 2")))])
     (check-equal? (parse-from data) (list (from-table "voiture" #f #f) (from-table "camion" #f #f)))))
-                
-(define (find-candidates reverse-list position database)
-  (define start (find-position reverse-list position))
-  (if (empty? start)
-      empty
-      (case (find-context start)
-        [(SELECT WHERE) (find-candidates-select 
-                         start 
-                         (let ([candidates (parse-from reverse-list)]) 
-                           (if (empty? candidates)
-                               (list-unique (all-columns database)) 
-                               (posible-select candidates database)))
-                         position)]
-        [(FROM) (find-candidates-from start database)]
-        [else empty])))
+
+(define (extract-from-to from to tokens [include-from? #t] [include-to? #f])
+  (define (coerce-list elem) (if (list? elem) elem (list elem)))
+  (define from-list (coerce-list from))
+  (define to-list (coerce-list to))
+  (let loop ([tokens tokens]
+             [result (list)]
+             [start #f])
+    (cond 
+     [(empty? tokens) (reverse result)]
+     [(member (position-token-name (first tokens)) from-list)
+      (loop (rest tokens)
+            (if include-from?
+                (cons (first tokens) result)
+                result)
+            #t)]
+     [(and start (member (position-token-name (first tokens)) to-list))
+      (reverse
+       (if include-to?
+           (cons (first tokens) result)
+           result))]
+     [start
+      (loop (rest tokens)
+            (cons (first tokens) result)
+            #t)]
+     [else
+      (loop (rest tokens)
+            result
+            start)])))
+            
+(module+ test
+  (let ([data (lex-all-without-blank (open-input-string "SELECT maison FROM voiture, camion WHERE id = 2"))])
+    (check-equal?
+     (map position-token-name (extract-from-to 'FROM 'WHERE data))
+     '(FROM IDENTIFIER COMMA IDENTIFIER))))
+
+(define (reverse-drop-until-position tokens position)
+  (let loop ([reversed (list)]
+             [tokens tokens])
+  (if (empty? tokens)
+      reversed
+      (let ([token (first tokens)])
+        (if (> (position-offset (position-token-end-pos token)) position)
+            reversed
+            (loop (cons token reversed)
+                  (rest tokens)))))))
 
 (module+ test
-  (let ([data0 (reverse (lex-all-without-blank (open-input-string "SELECT f.n FROM fireman AS f")))]
-        [data1 (reverse (lex-all-without-blank (open-input-string "SELECT fh.a FROM fireman AS fi, firehouse AS fh")))])
+  (let ([data (lex-all-without-blank (open-input-string "SELECT f.n FROM fireman AS f"))])
+    (check-equal? (map position-token-name (reverse-drop-until-position data 11))
+                  '(IDENTIFIER DOT IDENTIFIER SELECT))))
+  
+(define (find-candidates tokens position database)
+  (define start (reverse-drop-until-position tokens position))
+  (case (find-context tokens position)
+    [(SELECT WHERE) (find-candidates-select 
+                     start 
+                     (let ([candidates (parse-from (reverse tokens))])
+                       ;;(printf "~a\n" candidates)
+                       (if (empty? candidates)
+                           ;;                           (list-unique (all-columns database)) 
+                           empty
+                           (posible-select candidates database)))
+                     position)]
+    [(FROM) (find-candidates-from start database)]
+    [else empty]))
+
+(module+ test
+  (let ([data0 (lex-all-without-blank (open-input-string "SELECT f.n FROM fireman AS f"))]
+        [data1 (lex-all-without-blank (open-input-string "SELECT fh.a FROM fireman AS fi, firehouse AS fh"))])
     (check-equal? (find-candidates data0 11 test-db) '("f.name"))
     (check-equal? (find-candidates data0 10 test-db) '("f.year" "f.rank" "f.name" "f.id"))
     (check-equal? (find-candidates data1 12 test-db) '("fh.address"))))
@@ -234,7 +294,8 @@ FULL UNION OPAREN CPAREN COMMA DOT EQUAL EOF))
 (define sql-lexer
   (lexer-src-pos
    [(:or #\space #\tab #\newline "\r") 'BLANKS]
-   
+   [(:: #\- #\- (:~ #\newline)) 'BLANKS]
+
    [(ignore-case "select") 'SELECT]
    [(ignore-case "table") 'TABLE]
    [(ignore-case "alter") 'ALTER]
@@ -265,17 +326,46 @@ FULL UNION OPAREN CPAREN COMMA DOT EQUAL EOF))
    [(ignore-case "join") 'JOIN]
    [(ignore-case "full") 'FULL]
    [(ignore-case "union") 'UNION]
+   [(ignore-case "true") 'TRUE]
+   [(ignore-case "false") 'FALSE]
+   [(ignore-case "primary") 'PRIMARY]
+   [(ignore-case "key") 'KEY]
+   [(ignore-case "default") 'DEFAULT]
+   [(ignore-case "not") 'NOT]
+   [(ignore-case "null") 'NULL]
    
-   [(:+ (:/ #\a #\z #\A #\Z #\0 #\9)) (token-IDENTIFIER lexeme)]
+   [(ignore-case "text") 'T_TEXT]
+   [(ignore-case "int") 'T_INT]
+   [(ignore-case "integer") 'T_INT]
+   [(ignore-case "serial") 'T_SERIAL]
+   [(ignore-case "bigserial") 'T_BIGSERIAL]
+   [(ignore-case "boolean") 'T_BOOL]
+   [(ignore-case "bigint") 'T_BIGINT]
+   
+   [(:: (ignore-case "timestamp") (:? (:: #\( (:/ #\0 #\9) #\))) (:? (ignore-case " without time zone")))
+    'T_TIMEZONE]
+   
+   [(:: (:or (ignore-case "varchar(") (ignore-case "character varying(")) (:+ (:/ #\0 #\9)) #\))
+    'T_VARCHAR]
+   [(ignore-case "date") 'T_DATE]
+   [(:: (ignore-case "numeric") (:? (:: #\( (:+ (:/ #\0 #\9)) #\, (:* #\space) (:+ (:/ #\0 #\9))#\))))
+    'T_NUMERIC]
+   
+   [(ignore-case "now()") 'F_NOW]
+      
+      
+   [(:+ (:or (:/ #\a #\z #\A #\Z #\0 #\9) #\_ #\-)) (token-IDENTIFIER lexeme)]
    [(:: #\" (:+ (:or (:: #\\ any-char) (:~ #\"))) #\")
     (token-IDENTIFIER (substring lexeme 1 (sub1 (string-length lexeme))))]
    
-   [(:: #\' (:+ (:or (:: #\\ any-char) (:~ #\'))) #\')
+   [(:: #\' (:* (:or (:: #\\ any-char) (:~ #\'))) #\')
     (token-STRING lexeme)]
-   
+
    [(:+ (:/ #\0 #\9))
     (token-INTEGER lexeme)]
    
+   [(:: #\: #\:) 'TRANSTYPE]
+   [#\; 'SEMICOLON]
    [#\( 'OPAREN]
    [#\) 'CPAREN]
    [#\, 'COMMA]
@@ -320,7 +410,7 @@ FULL UNION OPAREN CPAREN COMMA DOT EQUAL EOF))
 (define sql-parser
   (parser
    (src-pos)
-   (start from+join)
+   (start from+join create_table)
    (end EOF WHERE ORDER)
    
    (debug "debug.txt")
@@ -388,8 +478,54 @@ FULL UNION OPAREN CPAREN COMMA DOT EQUAL EOF))
     (from_table_list
      [(from_table) (list $1)]
      [(from_table COMMA from_table_list) (cons $1 $3)])
+    
+    (create_table
+     [(CREATE TABLE IDENTIFIER OPAREN columndefs CPAREN)
+      (let ([constraint (filter Constraint? $5)]
+            [column (filter Column? $5)])
+        (Table $3 column constraint))])
+    
+    (columndefs
+     [(columndef) (list $1)]
+     [(columndefs COMMA columndef) (append $1 (list $3))])
+
+    (type
+     [(T_TEXT) 'text]
+     [(T_INT) 'int]
+     [(T_SERIAL) 'serial] 
+     [(T_BIGSERIAL) 'bigserial]
+     [(T_BOOL) 'bool] 
+     [(T_BIGINT) 'bigint]
+     [(T_TIMEZONE) 'timezone]
+     [(T_VARCHAR) 'varchar]
+     [(T_DATE) 'date]
+     [(T_NUMERIC) 'numeric])
+    
+    (identifiers
+     [(IDENTIFIER) (list $1)]
+     [(identifiers COMMA IDENTIFIER) (append $1 (list $3))])
+    
+    (columndef
+     [(PRIMARY KEY OPAREN identifiers CPAREN) (Constraint 'primary-key $4)]
+     [(IDENTIFIER type) (Column $1 $2 #t 'nothing)]
+     [(IDENTIFIER type DEFAULT scalar) (Column $1 $2 #t $4)]
+     [(IDENTIFIER type DEFAULT scalar NOT NULL) (Column $1 $2 #f $4)]
+     [(IDENTIFIER type NOT NULL) (Column $1 $2 #f 'nothing)])
+
+    (scalar
+     [(functions) $1]
+     [(NULL TRANSTYPE type) (cons null $3)]
+     [(NULL) null]
+     [(INTEGER) $1]
+     [(STRING TRANSTYPE type) (cons $1 $3)]
+     [(STRING) $1]
+     [(TRUE) #f]
+     [(FALSE) #f])
+
+    (functions
+     [(F_NOW) 'now])
     )))
-      
+
 
 
 (module+ test
@@ -397,8 +533,8 @@ FULL UNION OPAREN CPAREN COMMA DOT EQUAL EOF))
     (check-equal? (lex-all-name-only data) '(FROM BLANKS IDENTIFIER COMMA BLANKS
 IDENTIFIER BLANKS AS BLANKS IDENTIFIER COMMA BLANKS IDENTIFIER EOF))))
 
-;;"CREATE" "TABLE" y_table "(" y_columndefs ")"
 
+   
 ;; sql= Language("SQL",
 ;; """
 ;; sql ::= y_sql
