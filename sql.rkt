@@ -68,8 +68,9 @@
 (define-empty-tokens op-tokens 
   (SELECT TABLE ALTER DELETE INSERT UPDATE INTO FROM WHERE ORDER BY SET VALUES
 AND OR LIKE CREATE IN AS DISTINCT ALL NATURAL OUTER INNER ON RIGHT LEFT JOIN
-FULL UNION OPAREN CPAREN COMMA DOT EQUAL EOF SEMICOLON TRANSTYPE TRUE FALSE
-F_NOW
+FULL UNION OPAREN CPAREN COMMA DOT EQUAL EOF SEMICOLON TRANSTYPE TRUE FALSE 
+UNIQUE CONSTRAINT
+F_NOW 
 PRIMARY KEY DEFAULT NOT NULL
 T_TEXT T_INT T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE T_VARCHAR T_DATE T_NUMERIC))
 
@@ -333,6 +334,8 @@ T_TEXT T_INT T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE T_VARCHAR T_DATE T_
    [(ignore-case "default") 'DEFAULT]
    [(ignore-case "not") 'NOT]
    [(ignore-case "null") 'NULL]
+   [(ignore-case "unique") 'UNIQUE]
+   [(ignore-case "constraint") 'CONSTRAINT]
    
    [(ignore-case "text") 'T_TEXT]
    [(ignore-case "int") 'T_INT]
@@ -501,12 +504,21 @@ T_TEXT T_INT T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE T_VARCHAR T_DATE T_
      [(T_DATE) 'date]
      [(T_NUMERIC) 'numeric])
     
+    (qualified_identifiers
+     [(IDENTIFIER) (list $1)]
+     [(identifiers DOT IDENTIFIER) (append $1 (list $3))])
+    
     (identifiers
      [(IDENTIFIER) (list $1)]
      [(identifiers COMMA IDENTIFIER) (append $1 (list $3))])
     
+    (constraint_name
+     [(CONSTRAINT qualified_identifiers) $2]
+     [() #f])
+    
     (columndef
-     [(PRIMARY KEY OPAREN identifiers CPAREN) (Constraint 'primary-key $4)]
+     [(constraint_name PRIMARY KEY OPAREN identifiers CPAREN) (PrimaryKey $1 $5)]
+     [(constraint_name UNIQUE OPAREN identifiers CPAREN) (Unique $1 $4)]
      [(IDENTIFIER type) (Column $1 $2 #t 'nothing)]
      [(IDENTIFIER type DEFAULT scalar) (Column $1 $2 #t $4)]
      [(IDENTIFIER type DEFAULT scalar NOT NULL) (Column $1 $2 #f $4)]

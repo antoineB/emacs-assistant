@@ -7,7 +7,9 @@
  
  (struct-out Column)
  (struct-out Table)
- (struct-out Constraint))
+ (struct-out PrimaryKey)
+ (struct-out Unique)
+ Constraint?)
 
 (struct db (tables) #:transparent)
 
@@ -20,4 +22,8 @@
 
 (struct Column (name type nullable default) #:transparent)
 
-(struct Constraint (name value) #:transparent)
+(struct Constraint (name))
+
+(struct Unique Constraint (columns))
+
+(struct PrimaryKey Constraint (columns))
