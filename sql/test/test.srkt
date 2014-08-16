@@ -1,0 +1,60 @@
+((3)
+ 3
+ (((file "/home/antoine/prj/emacs-assistant/sql/struct.rkt")
+   .
+   deserialize-info:Db-v0)
+  ((file "/home/antoine/prj/emacs-assistant/sql/struct.rkt")
+   .
+   deserialize-info:Table-v0)
+  ((file "/home/antoine/prj/emacs-assistant/sql/struct.rkt")
+   .
+   deserialize-info:Column-v0))
+ 11
+ ("fireman"
+  "id"
+  "name"
+  "rank"
+  "year"
+  "firetruck"
+  "seat"
+  "type"
+  "firehouse"
+  "workforce"
+  "address")
+ ()
+ (0
+  (h
+   -
+   (equal)
+   ((? . 0)
+    1
+    (? . 0)
+    (h
+     -
+     (equal)
+     ((? . 1) 2 (? . 1) int #t nothing)
+     ((? . 2) 2 (? . 2) string #t nothing)
+     ((? . 3) 2 (? . 3) int #t nothing)
+     ((? . 4) 2 (? . 4) int #t nothing))
+    ())
+   ((? . 5)
+    1
+    (? . 5)
+    (h
+     -
+     (equal)
+     ((? . 6) 2 (? . 6) int #t nothing)
+     ((? . 1) 2 (? . 1) int #t nothing)
+     ((? . 7) 2 (? . 7) string #t nothing))
+    ())
+   ((? . 8)
+    1
+    (? . 8)
+    (h
+     -
+     (equal)
+     ((? . 1) 2 (? . 1) int #t nothing)
+     ((? . 2) 2 (? . 2) string #t nothing)
+     ((? . 9) 2 (? . 9) string #t nothing)
+     ((? . 10) 2 (? . 10) string #t nothing))
+    ()))))

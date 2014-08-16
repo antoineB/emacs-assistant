@@ -31,7 +31,7 @@
                           (lambda x (printf+flush "You got a bad error boy\n") (printf+flush "~a\n" x))])
            (let ([data (apply (eval fun commands-ns) args)])
              (when data
-               (fprintf client-out "~s" (cons 'token (cons nb data)))
+               (fprintf client-out "~s" (list* 'token nb data))
                (flush-output client-out))))
          (printf+flush "i loop\n")
          (loop)]
