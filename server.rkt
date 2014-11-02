@@ -1,7 +1,8 @@
 #lang racket
 
 (require racket/tcp
-         racket/rerequire)
+         racket/rerequire
+         "config.rkt")
 
 (define commands-ns (begin
                       (dynamic-rerequire "commands.rkt")
@@ -12,6 +13,7 @@
   (flush-output))
 
 (module+ main
+  (read-config)
   (define out (current-output-port))
   (define server (tcp-listen 1026 4 #t))
   (printf+flush "Server running\n")

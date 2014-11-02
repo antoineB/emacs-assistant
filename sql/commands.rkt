@@ -1,6 +1,7 @@
 #lang racket
 
 (require "parser.rkt"
+         "../config.rkt"
          racket/serialize)
 
 (provide sql-completion)
@@ -10,7 +11,7 @@
 (define (get-database)
   (or (current-database)
       (begin 
-        (current-database (deserialize (call-with-input-file "/home/antoine/prj/emacs-assistant/sql/test/test.srkt" read)))
+        (current-database (deserialize (call-with-input-file (get-config 'sql-database-file) read)))
         (current-database))))
 
 (define/contract (sql-completion str position)
