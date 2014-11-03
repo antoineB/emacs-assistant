@@ -1,3 +1,5 @@
+(require 'cl)
+
 (defvar -ab-connection nil)
 
 (defvar -ab-buffer nil)
@@ -14,12 +16,13 @@
   ;; For debug purpose.
   (-ab-message-to-buffer str)
   (let* ((data (read str))
-	 (sym (intern(concat "ab-resp-" (symbol-name (car data)))))
-	 (data (cdr data)))
+         (sym (intern(concat "ab-resp-" (symbol-name (car data)))))
+         (data (cdr data)))
     ;;test (fboundp sym)
     (funcall sym data)))
 
 (defun ab-start ()
+  (interactive)
   (setq -ab-connection (open-network-stream "*AB server*" nil -ab-server-ip -ab-server-port))
   (set-process-coding-system -ab-connection 'utf-8-unix 'utf-8-unix)
   (setq -ab-buffer (generate-new-buffer "*AB server*"))
@@ -53,16 +56,16 @@
 (defun ab-send-string-timeout (str timeout)
   (let ((counter (next-counter)))
     (when (with-timeout (timeout nil)
-	    (process-send-string -ab-connection (concat "(token " (prin1-to-string counter) " " str ")"))
-	    (puthash counter 'wait -ab-token)
-	    (while (equalp 'wait (gethash counter -ab-token))
-	      (sleep-for 0.01))
-	    'done)
+            (process-send-string -ab-connection (concat "(token " (prin1-to-string counter) " " str ")"))
+            (puthash counter 'wait -ab-token)
+            (while (equalp 'wait (gethash counter -ab-token))
+              (sleep-for 0.01))
+            'done)
       (let ((data (gethash counter -ab-token)))
-	(when data
-	  (let ((sym (intern(concat "ab-resp-sync-" (symbol-name (car data)))))
-		(data (cdr data)))
-	    (funcall sym data)))))))
+        (when data
+          (let ((sym (intern(concat "ab-resp-sync-" (symbol-name (car data)))))
+                (data (cdr data)))
+            (funcall sym data)))))))
 
 (defun ab-resp-sync-bonjour (args)
   (message "coucou"))

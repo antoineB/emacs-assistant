@@ -1,9 +1,8 @@
-
 #lang racket
 
 (provide commands-ns)
 
-(require 
+(require
  "sql/commands.rkt")
 
 (define-namespace-anchor anchor)

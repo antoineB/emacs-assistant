@@ -4,17 +4,265 @@
          parser-tools/lex
          racket/generator
          (prefix-in : parser-tools/lex-sre)
+         "../utils.rkt"
          "../lexing-helper.rkt"
          "struct.rkt"
          "query.rkt")
 
-(provide 
-;; find-candidates
+(provide
  find-candidates
  lex-all-without-blank
  from+join-parser
  create-table-parser
- lex-all)
+ select-parser
+ split-select-request
+ select-request?
+ lex-all
+ form:from
+ Select-request->string)
+
+(define (token->string token)
+  (case (position-token-name token)
+    [(SELECT) "SELECT"]
+    [(TABLE) "TABLE"]
+    [(ALTER) "ALTER"]
+    [(DELETE) "DELETE"]
+    [(INSERT) "INSERT"]
+    [(UPDATE) "UPDATE"]
+    [(INTO) "INTO"]
+    [(FROM) "FROM"]
+    [(WHERE) "WHERE"]
+    [(ORDER) "ORDER"]
+    [(BY) "BY"]
+    [(SET) "SET"]
+    [(VALUES)"VALUES"]
+    [(AND) "AND"]
+    [(OR) "OR"]
+    [(LIKE) "LIKE"]
+    [(CREATE) "CREATE"]
+    [(IN) "IN"]
+    [(AS) "AS"]
+    [(DISTINCT) "DISTINCT"]
+    [(ALL) "ALL"]
+    [(NATURAL) "NATURAL"]
+    [(OUTER) "OUTER"]
+    [(INNER) "INNER"]
+    [(ON) "ON"]
+    [(RIGHT) "RIGHT"]
+    [(LEFT) "LEFT"]
+    [(JOIN)"JOIN"]
+    [(FULL) "FULL"]
+    [(UNION) "UNION"]
+    [(OPAREN) "("]
+    [(CPAREN) ")"]
+    [(COMMA) ","]
+    [(DOT) "."]
+    [(EQUAL) "="]
+    [(EOF) ""]
+    [(SEMICOLON) ";"]
+    [(TRANSTYPE) "::"]
+    [(TRUE) "TRUE"]
+    [(FALSE) "FALSE"]
+    [(ASTERISK) "*"]
+    [(UNIQUE)"UNIQUE"]
+    [(CONSTRAINT)"CONSTRAINT"]
+    [(F_NOW) "now()"]
+    [(PRIMARY)"PRIMARY"]
+    [(KEY)"KEY"]
+    [(DEFAULT)"DEFAULT"]
+    [(NOT)"NOT"]
+    [(NULL)"NULL"]
+    [(GRANT)"GRANT"]
+    ;;[(T_TEXT) [(T_CHARACTER) [(T_INT) [(T_REAL) [(T_SERIAL) [(T_BIGSERIAL) [(T_BOOL) [(T_BIGINT) [(T_TIMEZONE) [(T_VARCHAR) [(T_DATE) [(T_NUMERIC)))
+    [(IDENTIFIER INTEGER) (position-token-value token)]
+    [(STRING) (string-append "'" (position-token-value token) "'")]
+    ;;SUBQUERY))
+    [else
+     (error "no such token")]))
+
+
+(define (Select-request->string select)
+  (string-join
+   (append
+    (map token->string (or (Select-request-select select) empty))
+    (map token->string (or (Select-request-from select) empty))
+    (map token->string (or (Select-request-where select) empty))
+    (map token->string (or (Select-request-group-by select) empty))
+    (map token->string (or (Select-request-having select) empty))
+    (map token->string (or (Select-request-order-by select) empty))
+    '(";"))
+   " "))
+
+(define (position-no-pos token)
+  (position-token
+   token
+   (position #f #f #f)
+   (position #f #f #f)))
+
+(define (form:from tables-spec)
+  (cons
+   (position-no-pos (token-FROM))
+   (rest
+    (let loop ([tables-spec tables-spec]
+               [result (list (token-EOF))])
+      (if (empty? tables-spec)
+          (reverse result)
+          (loop
+           (rest tables-spec)
+           (append
+            (match (first tables-spec)
+              [(list name alias)
+               (list (position-no-pos (token-IDENTIFIER alias))
+                     (position-no-pos (token-AS))
+                     (position-no-pos (token-IDENTIFIER name)))]
+              [(? string? name)
+               (list (position-no-pos (token-IDENTIFIER name)))])
+            (if (empty? (rest tables-spec))
+                result
+                (cons (position-no-pos (token-COMMA)) result)))))))))
+
+(define (select-request? tokens)
+  (if (empty? tokens)
+      #f
+      (case (position-token-name (first tokens))
+        [(UPDATE) #f]
+        [(INSERT) #f]
+        [(DELETE) #f]
+        [else #t])))
+
+(define (split-select-request tokens)
+  ;; Make sure all parts of the select request will end with an eof tokens in
+  ;; order to use a eof as parse ending delimiter.
+  (define (end-with-eof tokens)
+    (if (and (not (empty? tokens))
+             (not (position-token-name=? 'EOF (first tokens))))
+        (cons
+         (position-token
+          (token-EOF)
+          (position-token-end-pos (first tokens))
+          (position-token-end-pos (first tokens)))
+         tokens)
+        ;; remove semicolon also
+        (if (and (not (empty? tokens))
+                 (not (empty? (rest tokens)))
+                 (position-token-name=? 'SEMICOLON (second tokens)))
+            (cons (first tokens) (rest (rest tokens)))
+            tokens)))
+
+  (define (start-with? starters tokens)
+    (for/and ([start starters]
+              [token tokens])
+     (position-token-name=? start token)))
+
+  (define (start-with-candidates candidates tokens)
+    (for/first ([candidate (in-set candidates)]
+                #:when (start-with? candidate tokens))
+      candidate))
+
+  (define (put-in-select-struct select tokens)
+    (cond
+     [(start-with? '(FROM) tokens)
+      (struct-copy Select-request select
+                   [from tokens])]
+     [(start-with? '(WHERE) tokens)
+      (struct-copy Select-request select
+                   [where tokens])]
+     [(start-with? '(ORDER BY) tokens)
+      (struct-copy Select-request select
+                   [order-by tokens])]
+     [(start-with? '(GROUP BY) tokens)
+      (struct-copy Select-request select
+                   [group-by tokens])]
+     [(start-with? '(HAVING) tokens)
+      (struct-copy Select-request select
+                   [having tokens])]
+     [(start-with? '(SELECT) tokens)
+      (struct-copy Select-request select
+                   [select tokens])]
+     [else
+       select]))
+
+  (let loop ([tokens tokens]
+             [stopers (set '(FROM) '(WHERE) '(ORDER BY) '(GROUP BY) '(HAVING))]
+             [group-tokens empty]
+             [parts (Select-request #f #f #f #f #f #f)])
+    (cond
+     [(empty? tokens)
+      (put-in-select-struct parts (reverse (end-with-eof group-tokens)))]
+     [(start-with-candidates stopers tokens) =>
+      (lambda (stoper)
+        (loop
+         (drop tokens (length stoper))
+         (set-remove stopers stoper)
+         (take tokens (length stoper))
+         (put-in-select-struct parts (reverse (end-with-eof group-tokens)))))]
+     [else
+      (loop
+       (rest tokens)
+       stopers
+       (cons (first tokens) group-tokens)
+       parts)])))
+
+(module+ test
+  (match-let* ([data (split-select-request
+               (lex-all-without-blank
+                (open-input-string "SELECT maison FROM voiture, camion WHERE id = 2;")))]
+               [(Select-request select from where _ _ _) data])
+    (check-pred list? select)
+    (check-equal? (map position-token-name select)
+                  '(SELECT IDENTIFIER EOF))
+    (check-pred list? from)
+    (check-equal? (map position-token-name from)
+                  '(FROM IDENTIFIER COMMA IDENTIFIER EOF))
+    (check-pred list? where)
+    (check-equal? (map position-token-name where)
+                  '(WHERE IDENTIFIER EQUAL IDENTIFIER EOF))))
+
+
+(define (mark-subquery tokens)
+  (let loop ([tokens tokens]
+             [result empty])
+    (cond [(empty? tokens)
+           (reverse result)]
+          [(empty? (rest tokens))
+           (reverse (cons (first tokens) result))]
+          [else
+           (let ([tok (first tokens)]
+                 [tokk (second tokens)])
+             (if (and (position-token-name=? 'OPAREN tok)
+                      (position-token-name=? 'SELECT tokk))
+                 (let* ([subquery-tokens (matching-balanced-pair tokens #hash((OPAREN . CPAREN)))]
+                        [subquery-rec (cons (first subquery-tokens) (mark-subquery (rest subquery-tokens)))])
+                   (loop
+                    (drop tokens (length subquery-tokens))
+                    (cons (position-token (token-SUBQUERY subquery-rec)
+                                          (position-token-start-pos (first subquery-rec))
+                                          (position-token-end-pos (last subquery-rec)))
+                          result)))
+                 (loop (rest tokens) (cons (first tokens) result))))])))
+
+(module+ test
+  (let ([data0 (mark-subquery (lex-all-without-blank (open-input-string "SELECT * FROM papillion;")))]
+        [data1 (mark-subquery (lex-all-without-blank (open-input-string "SELECT * FROM (SELECT * FROM papillion);")))]
+        [data2 (mark-subquery (lex-all-without-blank (open-input-string "SELECT * FROM (SELECT * FROM (SELECT * FROM papillion));")))])
+    (check-equal?
+     (filter (curry position-token-name=? 'SUBQUERY) data0)
+     empty)
+    (let ([subqueries (filter (curry position-token-name=? 'SUBQUERY) data1)])
+      (check-equal? (length subqueries) 1)
+      (let ([subquery (first subqueries)])
+        (check-equal? (position-offset (position-token-start-pos subquery)) 15)
+        (check-equal? (position-offset (position-token-end-pos subquery)) 40)))
+    (let ([subqueries (filter (curry position-token-name=? 'SUBQUERY) data2)])
+      (check-equal? (length subqueries) 1)
+      (let ([subquery (first subqueries)])
+        (check-equal? (position-offset (position-token-start-pos subquery)) 15)
+        (check-equal? (position-offset (position-token-end-pos subquery)) 56)
+        (let ([subsubqueries (filter (curry position-token-name=? 'SUBQUERY) (position-token-value subquery))])
+          (check-equal? (length subsubqueries) 1)
+          (let ([subsubquery (first subsubqueries)])
+            (check-equal? (position-offset (position-token-start-pos subsubquery)) 30)
+            (check-equal? (position-offset (position-token-end-pos subsubquery)) 55)))))))
 
 (define (lex-all input)
   (let loop ([current (sql-lexer input)]
@@ -34,7 +282,7 @@
   (if (equal? (position-token-name current) 'BLANKS)
       (lex-abc input)
       current))
-    
+
 
 (define (sql-parse str)
   (define input (open-input-string str))
@@ -57,7 +305,7 @@
             (reverse (cons current result))
             (loop (sql-lexer input)
                   (cons current result)))))
-    
+
     (define (lex-all-name-only input)
       (map position-token-name (lex-all input))))
 
@@ -71,24 +319,25 @@
                              stx))
        #`(concatenation #,@(map (lambda (c) #`(union #,(char-upcase c) #,(char-downcase c))) (string->list str))))]))
 
-(define-empty-tokens op-tokens 
+(define-empty-tokens op-tokens
   (SELECT TABLE ALTER DELETE INSERT UPDATE INTO FROM WHERE ORDER BY SET VALUES
 AND OR LIKE CREATE IN AS DISTINCT ALL NATURAL OUTER INNER ON RIGHT LEFT JOIN
-FULL UNION OPAREN CPAREN COMMA DOT EQUAL EOF SEMICOLON TRANSTYPE TRUE FALSE 
+FULL UNION OPAREN CPAREN COMMA DOT EQUAL EOF SEMICOLON TRANSTYPE TRUE FALSE
+ASTERISK
 UNIQUE CONSTRAINT
-F_NOW 
+F_NOW
 PRIMARY KEY DEFAULT NOT NULL
 STDIN
 GRANT
 T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE T_VARCHAR T_DATE T_NUMERIC))
 
-(define-tokens value-tokens (IDENTIFIER INTEGER STRING))
+(define-tokens value-tokens (IDENTIFIER INTEGER STRING SUBQUERY))
 
 (module+ test
   (define test-db
     (Db
      (hash "fireman"
-           (Table "fireman" 
+           (Table "fireman"
                    (hash "id" (Column "id" 'int #t 'nothing)
                          "name" (Column "name" 'string #t 'nothing)
                          "rank" (Column "rank" 'int #t 'nothing)
@@ -100,14 +349,14 @@ T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE 
                         "type" (Column "type" 'string #t 'nothing)
                         "seat" (Column "seat" 'int #t 'nothing))
                   empty)
-           "firehouse" 
-           (Table "firehouse" 
+           "firehouse"
+           (Table "firehouse"
                    (hash "id" (Column "id" 'int #t 'nothing)
                          "name" (Column "name" 'string #t 'nothing)
                          "address" (Column "address" 'string #t 'nothing)
                          "workforce" (Column "workforce" 'string #t 'nothing))
                    empty)))))
-  
+
 (define (find-context tokens position)
   (let loop ([context #f]
              [tokens tokens])
@@ -130,7 +379,7 @@ T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE 
     (check-equal? (find-context data 7) 'SELECT)
     (check-equal? (find-context data 11) 'SELECT)
     (check-equal? (find-context data 14) 'SELECT)
-    
+
     (check-equal? (find-context data 19) 'FROM)
     (check-equal? (find-context data 23) 'FROM)
     (check-equal? (find-context data 30) 'FROM)
@@ -168,8 +417,6 @@ T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE 
       (if (position-token-name=? 'IDENTIFIER before)
           (position-token-value before)
           "")))))
-
-(define list-unique (compose list->set set->list))
 
 (define (find-candidates-select database reverse-list from-clause position)
   (define (extract-start-with token start end)
@@ -239,7 +486,7 @@ T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE 
   (case (find-context tokens position)
     [(SELECT WHERE) (find-candidates-select
                      database
-                     start 
+                     start
                      (empty-false (parse-from (reverse tokens)))
                      position)]
     [(FROM) (find-candidates-from start database)]
@@ -259,8 +506,8 @@ T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE 
 
    ;; quick and dirt way to treat STDIN
    ;; ["\\." 'STDIN]
-   [(:: (ignore-case "from") (:+ (:or #\space #\tab #\newline "\r")) 
-	(ignore-case "stdin") (:* (:or #\space #\tab #\newline "\r")) ";")
+   [(:: (ignore-case "from") (:+ (:or #\space #\tab #\newline "\r"))
+        (ignore-case "stdin") (:* (:or #\space #\tab #\newline "\r")) ";")
     (begin
       (read-until "\\." input-port)
       'STDIN)]
@@ -306,7 +553,8 @@ T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE 
    [(ignore-case "constraint") 'CONSTRAINT]
    [(ignore-case "grant") 'GRANT]
 
-   
+   ["*" 'ASTERISK]
+
    [(ignore-case "text") 'T_TEXT]
    [(ignore-case "int") 'T_INT]
    [(ignore-case "integer") 'T_INT]
@@ -315,11 +563,11 @@ T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE 
    [(ignore-case "boolean") 'T_BOOL]
    [(ignore-case "bigint") 'T_BIGINT]
    [(ignore-case "real") 'T_REAL]
-   
-   [(:: (ignore-case "timestamp") (:? (:: #\( (:/ #\0 #\9) #\))) 
+
+   [(:: (ignore-case "timestamp") (:? (:: #\( (:/ #\0 #\9) #\)))
         (:? (:: (:or (ignore-case " without") (ignore-case " with")) (ignore-case " time zone"))))
     'T_TIMEZONE]
-   
+
    [(ignore-case "character varying")
     'T_VARCHAR]
 
@@ -328,23 +576,23 @@ T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE 
    [(ignore-case "date") 'T_DATE]
    [(:: (ignore-case "numeric") (:? (:: #\( (:+ (:/ #\0 #\9)) #\, (:* #\space) (:+ (:/ #\0 #\9))#\))))
     'T_NUMERIC]
-   
+
    [(:: (ignore-case "character(") (:+ (:/ #\0 #\9)) #\))
     'T_CHARACTER]
-   
+
    [(ignore-case "now()") 'F_NOW]
-      
-      
+
+
    [(:+ (:or (:/ #\a #\z #\A #\Z #\0 #\9) #\_ #\-)) (token-IDENTIFIER lexeme)]
    [(:: #\" (:+ (:or (:: #\\ any-char) (:~ #\"))) #\")
     (token-IDENTIFIER (substring lexeme 1 (sub1 (string-length lexeme))))]
-   
+
    [(:: #\' (:* (:or (:: #\\ any-char) (:~ #\'))) #\')
     (token-STRING lexeme)]
 
    [(:+ (:/ #\0 #\9))
     (token-INTEGER lexeme)]
-   
+
    [(:: #\: #\:) 'TRANSTYPE]
    [#\; 'SEMICOLON]
    [#\( 'OPAREN]
@@ -352,54 +600,75 @@ T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE 
    [#\, 'COMMA]
    [#\. 'DOT]
    [#\= 'EQUAL]
-   
+
    [(eof) 'EOF]))
 
 (define-values (from+join-parser
-                create-table-parser)
-  (let ([sql-parser 
+                create-table-parser
+                select-parser)
+  (let ([sql-parser
          (parser
           (src-pos)
-          (start from+join create_table)
-          (end EOF WHERE ORDER SEMICOLON)
-          
+          (start from+join create_table select)
+          (end EOF WHERE ORDER SEMICOLON) ; TODO: SEMICOLON, WHERE and ORDER
+                                          ; should be removed cause there is a
+                                          ; pre-split of the request at lexing
+                                          ; time and every part is ended with a
+                                          ; EOF token
+
           ;;(debug "debug.txt")
-          
+
           (tokens value-tokens op-tokens)
           (error (lambda x (print x) (print "Sorry the parser error message provide no clues.")))
-          
+
           (grammar
 
-           ;; (select
-           ;;  [(SELECT DISTINCT ...)
-           ;;  [(SELECT ALL ...)
-           ;;  [(SELECT ...)
-           
+           (set_quantifier
+            [() #f]
+            [(DISTINCT) 'DISTINCT]
+            [(ALL) 'ALL])
+
+           (select_column_list
+            [(qualified_identifier as_clause) (list
+                                               (if (list? $1)
+                                                   (Select-column (first $1) (second $1) $2)
+                                                   (Select-column $1 #f $2)))]
+            [(select_column_list COMMA qualified_identifier as_clause)
+             (append $1 (list 
+                         (if (list? $3)
+                             (Select-column (first $3) (second $3) $4)
+                             (Select-column $3 #f $4))))])
+
+            (select
+             [(SELECT ASTERISK) 'ASTERISK]
+             [(SELECT set_quantifier select_column_list) $3])
+
            (from
             [(FROM from_table_list) $2])
 
            (from+join
             [(from join_list) (append $1 $2)]
             [(from) $1])
-           
+
            (join_list
             [(join) (list $1)]
             [(join join_list) (cons $1 $2)])
-           
+
            (join_typical_test
             [(IDENTIFIER EQUAL IDENTIFIER) null]
             [(IDENTIFIER DOT IDENTIFIER EQUAL IDENTIFIER DOT IDENTIFIER) null]
             [(IDENTIFIER EQUAL IDENTIFIER DOT IDENTIFIER) null]
             [(IDENTIFIER DOT IDENTIFIER EQUAL IDENTIFIER) null])
-           
+
+           (as_clause
+            [() #f]
+            [(AS IDENTIFIER) $2]
+            [(IDENTIFIER) $1])
+
            (join
-            [(join_keyword IDENTIFIER) (From-table $2 #f #f)]
-            [(join_keyword IDENTIFIER AS IDENTIFIER) (From-table $2 $4 #f)]
-            [(join_keyword IDENTIFIER IDENTIFIER) (From-table $2 $3 #f)]
-            [(join_keyword IDENTIFIER ON join_typical_test) (From-table $2 #f #f)]
-            [(join_keyword IDENTIFIER ON join_typical_test AS IDENTIFIER) (From-table $2 $6 #f)]
-            [(join_keyword IDENTIFIER ON join_typical_test IDENTIFIER) (From-table $2 $5 #f)])
-           
+            [(join_keyword IDENTIFIER as_clause) (From-table $2 $3 #f)]
+            [(join_keyword IDENTIFIER ON join_typical_test as_clause) (From-table $2 $5 #f)])
+
            (join_keyword
             [(NATURAL INNER JOIN) null]
             [(NATURAL UNION JOIN) null]
@@ -418,31 +687,31 @@ T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE 
             [(RIGHT OUTER JOIN) null]
             [(FULL OUTER JOIN) null]
             [(JOIN) null])
-           
+
            (identifier_list
-            [(IDENTIFIER COMMA identifier_list)
-             (cons $1 $3)]
+            [(identifier_list COMMA IDENTIFIER)
+             (append $1 (list $3))]
             [(IDENTIFIER) (list $1)])
-           
+
            (column_specific_opt
             [() #f]
             [(OPAREN identifier_list CPAREN) $2])
-           
+
            (from_table
-            [(IDENTIFIER AS IDENTIFIER column_specific_opt) (From-table $1 $3 $4)]
-            [(IDENTIFIER IDENTIFIER column_specific_opt) (From-table $1 $2 $3)]
-            [(IDENTIFIER) (From-table $1 #f #f)])
-           
+            [(IDENTIFIER as_clause column_specific_opt) (From-table $1 $2 $3)])
+
            (from_table_list
             [(from_table) (list $1)]
             [(from_table COMMA from_table_list) (cons $1 $3)])
-           
+
            (create_table
             [(CREATE TABLE IDENTIFIER OPAREN columndefs CPAREN)
              (let ([constraint (filter Constraint? $5)]
                    [column (filter Column? $5)])
-               (Table $3 column constraint))])
-           
+               (Table $3
+                      (for/hash ([c column]) (values (Column-name c) c))
+                      constraint))])
+
            (columndefs
             [(columndef) (list $1)]
             [(columndefs COMMA columndef) (append $1 (list $3))])
@@ -451,35 +720,35 @@ T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE 
             [(T_TEXT) 'text]
             [(T_INT) 'int]
             [(T_REAL) 'real]
-            [(T_SERIAL) 'serial] 
+            [(T_SERIAL) 'serial]
             [(T_BIGSERIAL) 'bigserial]
-            [(T_BOOL) 'bool] 
+            [(T_BOOL) 'bool]
             [(T_BIGINT) 'bigint]
             [(T_TIMEZONE) 'timezone]
             [(T_VARCHAR) 'varchar]
             [(T_CHARACTER) 'character]
             [(T_DATE) 'date]
             [(T_NUMERIC) 'numeric])
-           
-           (qualified_identifiers
-            [(IDENTIFIER) (list $1)]
-            [(identifiers DOT IDENTIFIER) (append $1 (list $3))])
-           
-           (identifiers
-            [(IDENTIFIER) (list $1)]
-            [(identifiers COMMA IDENTIFIER) (append $1 (list $3))])
-           
+
+           (qualified_identifier
+            [(IDENTIFIER) $1]
+            [(IDENTIFIER DOT IDENTIFIER) (list $1 $3)])
+
+           (qualified_identifier_list
+            [(qualified_identifier) (list $1)]
+            [(qualified_identifier COMMA IDENTIFIER) (append $1 (list $3))])
+
            (constraint_name
-            [(CONSTRAINT qualified_identifiers) $2]
+            [(CONSTRAINT qualified_identifier) $2]
             [() #f])
 
            (not_null_opt
             [() #f]
             [(NOT NULL) #t])
-           
+
            (columndef
-            [(constraint_name PRIMARY KEY OPAREN identifiers CPAREN) (PrimaryKey $1 $5)]
-            [(constraint_name UNIQUE OPAREN identifiers CPAREN) (Unique $1 $4)]
+            [(constraint_name PRIMARY KEY OPAREN qualified_identifier_list CPAREN) (PrimaryKey $1 $5)]
+            [(constraint_name UNIQUE OPAREN qualified_identifier_list CPAREN) (Unique $1 $4)]
             [(IDENTIFIER type) (Column $1 $2 #t 'nothing)]
             [(IDENTIFIER type DEFAULT scalar not_null_opt) (Column $1 $2 (not $5) $4)]
             [(IDENTIFIER type NOT NULL) (Column $1 $2 #f 'nothing)])
@@ -498,7 +767,8 @@ T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE 
             [(F_NOW) 'now])))])
     (values
      (first sql-parser)
-     (second sql-parser))))
+     (second sql-parser)
+     (third sql-parser))))
 
 
 (module+ test
@@ -507,7 +777,7 @@ T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE 
 IDENTIFIER BLANKS AS BLANKS IDENTIFIER COMMA BLANKS IDENTIFIER EOF))))
 
 
-   
+
 ;; sql= Language("SQL",
 ;; """
 ;; sql ::= y_sql

@@ -1,1 +1,1 @@
-((sql-database-file . "/home/antoine/prj/emacs-assistant/sql/test/test.srkt"))
+((sql-database-file . "sql/test/test.srkt"))

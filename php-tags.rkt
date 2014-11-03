@@ -9,36 +9,36 @@
   (require rackunit))
 
 (define (apply-to-ast ast
-		      functions-pair
-		      [current-namespace null]
-		      [current-alias '()])
+                      functions-pair
+                      [current-namespace null]
+                      [current-alias '()])
   (define (loop data)
     (define data/first (when (not (empty? data)) (first data)))
     (cond [(empty? data) (void)]
-	  [(NamespaceStmt? data/first)
-	   (if (not (null? (NamespaceStmt-body data/first)))
-	       (apply-to-ast (NamespaceStmt-body data/first)
-			     functions-pair
-			     (NamespaceStmt-name data/first)
-			     current-alias)
-	       (set! current-namespace (NamespaceStmt-name data/first)))
-	   (loop (rest data))]
-	  [(UseStmt? data/first)
-	   (set! current-alias (append current-alias (UseStmt-uses data/first)))
-	   (loop (rest data))]
-	  [else
-	   (for ([p functions-pair])
-	     (let ([predicate (first p)]
-		   [functions (rest p)])
-	       (if (predicate data/first)
-		 (for ([f functions])
-		   (f current-namespace current-alias data/first))
-		 (when (sub-ast? data/first)
-		   (loop (get-sub-ast data/first))))))
-	   (loop (rest data))]))
+          [(NamespaceStmt? data/first)
+           (if (not (null? (NamespaceStmt-body data/first)))
+               (apply-to-ast (NamespaceStmt-body data/first)
+                             functions-pair
+                             (NamespaceStmt-name data/first)
+                             current-alias)
+               (set! current-namespace (NamespaceStmt-name data/first)))
+           (loop (rest data))]
+          [(UseStmt? data/first)
+           (set! current-alias (append current-alias (UseStmt-uses data/first)))
+           (loop (rest data))]
+          [else
+           (for ([p functions-pair])
+             (let ([predicate (first p)]
+                   [functions (rest p)])
+               (if (predicate data/first)
+                   (for ([f functions])
+                     (f current-namespace current-alias data/first))
+                   (when (sub-ast? data/first)
+                     (loop (get-sub-ast data/first))))))
+           (loop (rest data))]))
   (loop ast))
 
-  (define namespace-option (make-parameter #f))
+(define namespace-option (make-parameter #f))
 
 ;; Find the pattern from line-number and return the begin of line until pattern
 ;; is found
@@ -50,27 +50,27 @@
         (if (regexp-match? reg line)
             (substring line 0 (cdar (regexp-match-positions reg line)))
             (get-start-line lines (add1 line-number) pattern)))))
-  
+
 ;; ast         : PhpAst
 ;; files-lines : (VectorOf string)
 (define (ast->tag-line ast files-lines)
   (define lines empty)
   (define (build-line namespace ast extractor [sep "\\"])
     (define start (Position-start ast))
-       (set! lines
-             (cons 
-              (format
-               "~a~a~a~a~a,~a\n"
-               (get-start-line files-lines (sub1 (position-line start)) (extractor ast))
-               (if (namespace-option) (string-join namespace "\\") "")
-               (if (namespace-option) sep "")
-               (extractor ast)
-               (position-line start)
-               (position-offset start))
-              lines)))
-  (apply-to-ast 
+    (set! lines
+          (cons
+           (format
+            "~a~a~a~a~a,~a\n"
+            (get-start-line files-lines (sub1 (position-line start)) (extractor ast))
+            (if (namespace-option) (string-join namespace "\\") "")
+            (if (namespace-option) sep "")
+            (extractor ast)
+            (position-line start)
+            (position-offset start))
+           lines)))
+  (apply-to-ast
    ast
-   (list 
+   (list
     (list
      ClassDcl?
      (lambda (namespace _ class)
@@ -81,13 +81,13 @@
         (list
          (list
           MethodDcl?
-          (lambda (_ __ meth) 
+          (lambda (_ __ meth)
             (build-line full-namespace meth MethodDcl-name ":")))
          ;; (list
          ;;  ConstClassDcls?
          (list
           PropertyDcl?
-          (lambda (_ __ prop) 
+          (lambda (_ __ prop)
             (for ([name (PropertyDcl-variables prop)])
               (build-line full-namespace prop (lambda _ (if (pair? name) (car name) name)) ""))))))))
     (list
@@ -105,15 +105,16 @@
          ;;  ConstClassDcls?
          (list
           PropertyDcl?
-          (lambda (_ __ prop) 
+          (lambda (_ __ prop)
             (for ([name (PropertyDcl-variables prop)])
               (build-line full-namespace prop (lambda _ (if (pair? name) (car name) name)) ""))))))))
     (list
      FunctionDcl?
      (lambda (namespace _ fun) (build-line namespace fun FunctionDcl-name)))))
   (reverse lines))
+
 (module+ test
-  (define php-example 
+  (define php-example
     "<?php
 namespace Racket\\Test;
 
@@ -122,7 +123,7 @@ class Test {
   public $propA = null;
   public $propB;
 }")
-  
+
   (define in (open-input-string php-example))
   (define parsed (php-parse in))
   (close-input-port in)
@@ -147,7 +148,7 @@ class Test {
           (foldr + 0 (map string-length lines))))
 
 (define (file->tag filename)
-  (define parsed 
+  (define parsed
     (let* ([in (open-input-file filename)]
            [parsed (php-parse in)])
       (close-input-port in)
@@ -161,7 +162,7 @@ class Test {
        (cons
         (file-header filename lines)
         tags-line))))
-  
+
 
 (module+ main
   (define (find directory expect)
@@ -175,26 +176,26 @@ class Test {
                      (append (find file expect)
                              lst)]
                     [(and reg (regexp-match? reg file))
-                       lst]
+                     lst]
                     [else
                      (cons file lst)]))
                  empty
                  (directory-list)))
         empty))
-    
+
   (define-values (directory-opt expect-opt) (values #f #f))
   (define-values (tag-file filenames)
     (command-line
      #:once-each
      [("-n" "--namespace") "Display tag with its full namespace"
       (namespace-option #t)]
-     [("-e" "--expect") expect "A regexp that define the php that won't match" 
+     [("-e" "--expect") expect "A regexp that define the php that won't match"
       (set! expect-opt expect)]
-     [("-d" "--directory") directory "Define a directory to search for php file from" 
+     [("-d" "--directory") directory "Define a directory to search for php file from"
       (set! directory-opt directory)]
      #:args (tag-file . filenames)
      (values tag-file filenames)))
-  
+
   (when directory-opt
     (set! filenames
           (append
@@ -202,15 +203,14 @@ class Test {
             (curry regexp-match? #rx"\\.php$")
             (find directory-opt expect-opt))
            filenames)))
-  
+
   (when expect-opt
     (set! filenames
           (filter (compose not (curry regexp-match? expect-opt)) filenames)))
-    
+
   (define out (open-output-file tag-file #:exists 'replace))
   (for ([filename filenames])
     (display
      (file->tag filename)
      out))
   (close-output-port out))
-   

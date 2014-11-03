@@ -1,0 +1,10 @@
+* Sql
+** Completion
+*** TODO Treat the select subquery
+- If the subquery is in a FROM position use what it expose as potential candidates.
+- If in a subquery at a projection position use the FROM candidates from this
+  suquery but also all the FROM candidates from parents queries.
+*** TODO Check and done if not the candidate in a FROM position
+*** TODO Parse most of join forms
+** Terminate statement
+*** TODO Make a terminate that add "SELECT *" when only FROM portion is write

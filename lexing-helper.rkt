@@ -14,7 +14,7 @@
          read-until-eof)
 
 (define (position-token-value tok)
-  (token-name (position-token-token tok)))
+  (token-value (position-token-token tok)))
 
 (define (position-token-name tok)
   (token-name (position-token-token tok)))
@@ -30,11 +30,11 @@
             (reverse result)
             (let* ([tok (first toks)]
                    [value (position-token-name tok)])
-              (loop 
+              (loop
                (cond
                 [(hash-ref pairs value #f)
                  (cons (hash-ref pairs value) stack)]
-                [(and (not (empty? stack)) 
+                [(and (not (empty? stack))
                       (equal? (first stack) value))
                  (rest stack)]
                 [else
@@ -88,32 +88,32 @@
      (map position-token-name
           (matching-balanced-pair data4 #hash((OPAREN . CPAREN))))
      '(OPAREN OPAREN A B CPAREN A EOF))))
-    
-    
+
+
 
 (define (read-until until input-port)
   (define (loop data block)
     (if (equal? until block)
-	data
-	(let ([read/c (read-char input-port)])
-	  (if (eof-object? read/c)
-	      data
-	      (loop (string-append data (string read/c))
-		    (string-append
-		     (substring block 1 (string-length block))
-		     (string read/c)))))))
+        data
+        (let ([read/c (read-char input-port)])
+          (if (eof-object? read/c)
+              data
+              (loop (string-append data (string read/c))
+                    (string-append
+                     (substring block 1 (string-length block))
+                     (string read/c)))))))
   (define block (read-until-eof input-port (string-length until)))
   (loop block block))
 
 (define (read-until-eof input-port size)
   (define (loop data size)
     (if (<= size 0)
-	data
-	(let ([c (read-char input-port)])
-	  (if (eof-object? c)
-	      data
-	      (loop (string-append data (string c))
-		    (- size 1))))))
+        data
+        (let ([c (read-char input-port)])
+          (if (eof-object? c)
+              data
+              (loop (string-append data (string c))
+                    (- size 1))))))
   (loop "" size))
 
 (define (extract-from-to from to tokens [include-from? #t] [include-to? #f])
@@ -123,7 +123,7 @@
   (let loop ([tokens tokens]
              [result (list)]
              [start #f])
-    (cond 
+    (cond
      [(empty? tokens) (reverse result)]
      [(member (position-token-name (first tokens)) from-list)
       (loop (rest tokens)
