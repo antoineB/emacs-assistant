@@ -1,12 +1,14 @@
 #lang racket
 
-;; This file is currently keep, but its goal is not usefull.
-
-;; OLD -- Converting a dump sql to a compatible database format.
+;; Because it's a little stupid to use another format than SQL to store the
+;; database, so use the SQL format.
 
 (require "parser.rkt"
          "../lexing-helper.rkt"
-         "struct.rkt")
+         "struct.rkt"
+         racket/generator)
+
+(provide read-database)
 
 (module+ test
   (require rackunit))
@@ -52,12 +54,9 @@
 
 (module+ test
   (check-=
-   (length (only-created-table (open-input-file "test/schema.sql") ))
+   (length (only-created-table (open-input-file "test/schema.sql")))
    5
    0))
-
-
-(require racket/generator)
 
 (define (parse-create-table input-port)
   (define tokens
@@ -70,15 +69,6 @@
 ;; TODO: added real but does it is similar to numeric?
 ;; TODO: character does it similar to something? varchar
 
-
-(module+ main
-  (require racket/serialize)
-  (define-values (sql-filename dest-filename)
-    (command-line
-     #:args (sql-filename dest-filename)
-     (values sql-filename dest-filename)))
-  (define db (Db (for/hash
-                     ([d (call-with-input-file sql-filename parse-create-table)])
-                   (values (Table-name d) d))))
-  (call-with-output-file dest-filename
-    (curry write (serialize db))))
+(define (read-database in)
+  (Db (for/hash ([d (parse-create-table in)])
+        (values (Table-name d) d))))

@@ -8,3 +8,6 @@
 *** TODO Parse most of join forms
 ** Terminate statement
 *** TODO Make a terminate that add "SELECT *" when only FROM portion is write
+** DONE change the format for saving the database
+** TODO add a flycheck module
+** TODO write a documentation

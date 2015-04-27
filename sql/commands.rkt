@@ -4,7 +4,7 @@
          "../config.rkt"
          "terminate.rkt"
          "struct.rkt"
-         racket/serialize)
+         "read-database.rkt")
 
 (provide sql-completion
          sql-terminate)
@@ -14,7 +14,7 @@
 (define (get-database)
   (or (current-database)
       (begin
-        (current-database (deserialize (call-with-input-file (get-config 'sql-database-file) read)))
+        (current-database (call-with-input-file (get-config 'sql-database-file) read-database))
         (current-database))))
 
 (define/contract (sql-completion str position)

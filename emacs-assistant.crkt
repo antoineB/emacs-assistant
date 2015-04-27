@@ -1,1 +1,1 @@
-((sql-database-file . "sql/test/test.srkt"))
+((sql-database-file . "sql/test/schema.sql"))
