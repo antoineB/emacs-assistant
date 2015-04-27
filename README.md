@@ -24,13 +24,8 @@ Sql
 
 Provide basic autocompletion for simple select sql.
 
-Change _emacs-assistant.crkt_ to point to the file describing the database (_myfile.crkt_).
-
-use
-
-    $ racket sql/dump.rkt schema-database.sql myfile.crkt
-
-ensure you dump only the schema other wise it will not work.
+Change _emacs-assistant.crkt_ to point to the your sql schema, ensure it is only
+the schema other wise it will probably not work.
 
 Run
 
