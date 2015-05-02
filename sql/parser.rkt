@@ -182,7 +182,7 @@
      [else
        select]))
 
-  (let loop ([tokens tokens]
+  (let loop ([tokens (mark-subquery tokens)]
              [stopers (set '(FROM) '(WHERE) '(ORDER BY) '(GROUP BY) '(HAVING))]
              [group-tokens empty]
              [parts (Select-request #f #f #f #f #f #f)])
@@ -229,6 +229,9 @@
           [else
            (let ([tok (first tokens)]
                  [tokk (second tokens)])
+             ;; TODO: make the subquery algorithm recognise from the second
+             ;; SELECT occuring not only one preceded by an OPAREN. And stop
+             ;; subquery at the second WHERE, FROM, GROUP etc...
              (if (and (position-token-name=? 'OPAREN tok)
                       (position-token-name=? 'SELECT tokk))
                  (let* ([subquery-tokens (matching-balanced-pair tokens #hash((OPAREN . CPAREN)))]
@@ -338,11 +341,11 @@ T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE 
     (Db
      (hash "fireman"
            (Table "fireman"
-                   (hash "id" (Column "id" 'int #t 'nothing)
-                         "name" (Column "name" 'string #t 'nothing)
-                         "rank" (Column "rank" 'int #t 'nothing)
-                         "year" (Column "year" 'int #t 'nothing))
-                   empty)
+                  (hash "id" (Column "id" 'int #t 'nothing)
+                        "name" (Column "name" 'string #t 'nothing)
+                        "rank" (Column "rank" 'int #t 'nothing)
+                        "year" (Column "year" 'int #t 'nothing))
+                  empty)
            "firetruck"
            (Table "firetruck"
                   (hash "id" (Column "id" 'int #t 'nothing)
@@ -351,11 +354,11 @@ T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE 
                   empty)
            "firehouse"
            (Table "firehouse"
-                   (hash "id" (Column "id" 'int #t 'nothing)
-                         "name" (Column "name" 'string #t 'nothing)
-                         "address" (Column "address" 'string #t 'nothing)
-                         "workforce" (Column "workforce" 'string #t 'nothing))
-                   empty)))))
+                  (hash "id" (Column "id" 'int #t 'nothing)
+                        "name" (Column "name" 'string #t 'nothing)
+                        "address" (Column "address" 'string #t 'nothing)
+                        "workforce" (Column "workforce" 'string #t 'nothing))
+                  empty)))))
 
 (define (find-context tokens position)
   (let loop ([context #f]
@@ -451,7 +454,7 @@ T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE 
     alias)))
 
 (define (parse-from reverse-list)
-  (define tokens (extract-from-to '(WHERE EOF) 'FROM reverse-list #t #t))
+  (define tokens (extract-from-to '(WHERE CPAREN EOF) 'FROM reverse-list #t #t))
   (if (empty? tokens)
       empty
       (from+join-parser (sequence->generator (reverse tokens)))))
@@ -634,7 +637,7 @@ T_TEXT T_CHARACTER T_INT T_REAL T_SERIAL T_BIGSERIAL T_BOOL T_BIGINT T_TIMEZONE 
                                                    (Select-column (first $1) (second $1) $2)
                                                    (Select-column $1 #f $2)))]
             [(select_column_list COMMA qualified_identifier as_clause)
-             (append $1 (list 
+             (append $1 (list
                          (if (list? $3)
                              (Select-column (first $3) (second $3) $4)
                              (Select-column $3 #f $4))))])

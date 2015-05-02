@@ -11,3 +11,32 @@
 ** DONE change the format for saving the database
 ** TODO add a flycheck module
 ** TODO write a documentation
+** TODO when a select request with an (subquery) inner select arrive make sure it use the inner_select token
+Make sure every parts of a select request is split into several parts
+Make sure the algoithm to know the end of an inner request is
+1. ends with =)=
+2. reach =EOF=
+3. reach another =SELECT WHERE HAVING GROUP= etc
+*** reorganise the code to make this more appearant
+** find context treat the case if it is a subquery
+** TODO Redo the thing to do it in order
+1. How many distinct request there are and in wich we are?
+   A request is mandatory delimited with a semicolon
+2. Mark subquery and find if we are in a subquery (keep in mind that subquery
+   can be recursive)
+3. Find the type of query (SELECT, INSERT, DELETE, UPDATE, NO-IDEA) (if we are
+   in a subquery we are in a select)
+4. Split the qeury in several bits (FROM, SELECT, WHERE, etc...) also usefull
+   for other query than SELECT.
+
+So we ends up with a datastructure with
+- next and previous request
+- the current request
+- the parent request (in case we are in a subquery)
+
+The request datastructure is
+- type (ok several request structures seem better suited, also the NO-IDEA request)
+- from part
+- select part
+- ... all the other part we can think of
+- parent context (for the subquery request)
