@@ -21,6 +21,59 @@
  form:from
  Select-request->string)
 
+(define (make-token-EOF [token #f])
+  (position-token
+          (token-EOF)
+          (and token (position-token-end-pos token))
+          (and token (position-token-end-pos token))))
+
+;; Add an EOF at end of the tokens if there is none, assume the tokens are in
+;; reverse order.
+(define (coerse-with-EOF-reverse tokens)
+  (cond [(empty? tokens) tokens]
+        [(position-token-name=? 'EOF (first tokens)) tokens]
+        [else
+         (cons
+          (make-token-EOF (first tokens))
+          tokens)]))
+
+(define (separate-request tokens)
+  (let loop ([tokens tokens]
+             [result '(())])
+    (cond [(empty? tokens)
+           (reverse
+            (map (compose reverse coerse-with-EOF-reverse)
+                 (filter (compose not empty?) result)))]
+          [(position-token-name=? 'SEMICOLON (first tokens))
+           (loop
+            (rest tokens)
+            (cons empty result))]
+          [else
+           (loop
+            (rest tokens)
+            (cons
+             (cons (first tokens) (first result))
+             (rest result)))])))
+
+
+(module+ test
+  ;; TODO: check the presence of the EOF token with the right position which are
+  ;; end of the last real token
+  (let* ([data0 (lex-all-without-blank
+                (open-input-string "SELECT abc FROM edf; SELECT why FROM wat"))]
+         [data1 (separate-request data0)])
+    (match (first data1)
+      [(list _ abc _ edf eof0)
+       (check-equal? (position-token-value abc) "abc")
+       (check-equal? (position-offset (position-token-start-pos eof0)) 20)
+       (check-equal? (position-offset (position-token-end-pos eof0)) 20)])
+    (match (second data1)
+      [(list _ why _ wat eof1)
+       (check-equal? (position-token-value why) "why")
+       (check-equal? (position-offset (position-token-start-pos eof1)) 41)
+       (check-equal? (position-offset (position-token-end-pos eof1)) 41)])))
+
+
 (define (token->string token)
   (case (position-token-name token)
     [(SELECT) "SELECT"]
