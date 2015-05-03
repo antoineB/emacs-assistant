@@ -37,7 +37,9 @@
           (make-token-EOF (first tokens))
           tokens)]))
 
-(define (separate-request tokens)
+;; Separate a stream of tokens into several list of tokens each one representing
+;; a different request. The separation is done using the SEMICOLON.
+(define (separate-requests tokens)
   (let loop ([tokens tokens]
              [result '(())])
     (cond [(empty? tokens)
@@ -57,11 +59,9 @@
 
 
 (module+ test
-  ;; TODO: check the presence of the EOF token with the right position which are
-  ;; end of the last real token
   (let* ([data0 (lex-all-without-blank
                 (open-input-string "SELECT abc FROM edf; SELECT why FROM wat"))]
-         [data1 (separate-request data0)])
+         [data1 (separate-requests data0)])
     (match (first data1)
       [(list _ abc _ edf eof0)
        (check-equal? (position-token-value abc) "abc")
