@@ -49,3 +49,11 @@ Php etags
 
 Generate an etags file from php files, and select your relevant data through an
 [helm](https://github.com/emacs-helm/helm) interface.
+
+
+Quick read
+----------
+
+A simple emacs lib to extract matching symbol with a regexp _qr-symbol-regexp_
+from a buffer or region and uniquify them. It usefull to skim from tedious
+reading piece of text and find the word you may search for.
